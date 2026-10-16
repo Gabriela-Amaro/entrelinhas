@@ -1,0 +1,105 @@
+name: Publicar instaladores
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag existente para publicar (exemplo v1.2.0)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+  build:
+    needs: checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: windows-2025
+            platform: win
+            arch: x64
+          - runner: macos-15-intel
+            platform: mac
+            arch: x64
+          - runner: macos-15
+            platform: mac
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: node -e "const v=require('./package.json').version;if(process.env.RELEASE_TAG!=='v'+v)throw Error('Tag e versão do package.json precisam coincidir')"
+      - run: npm ci
+      - run: npm run build
+      - name: Dependências dos pacotes Linux
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm libcrypt1
+      - name: Gerar instaladores
+        run: npx electron-builder --${{ matrix.platform }} --${{ matrix.arch }} --publish never
+      - name: Montar instalador Linux sem Node.js
+        if: matrix.platform == 'linux'
+        run: node scripts/bundle-linux.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installers-${{ matrix.platform }}-${{ matrix.arch }}
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/*.tar.gz
+            release/*.exe
+            release/*.dmg
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: installers-*
+          path: installers
+          merge-multiple: true
+      - run: node scripts/checksums.mjs installers
+      - name: Publicar release completa
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Entrelinhas $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          fi
+          gh release upload "$RELEASE_TAG" installers/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest

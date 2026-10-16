@@ -1,0 +1,22 @@
+name: Relatar problema
+description: Um erro ao instalar ou usar o Entrelinhas.
+body:
+  - type: input
+    id: system
+    attributes:
+      label: Sistema e versão do Entrelinhas
+      placeholder: Fedora 43, Entrelinhas 1.2.0, pacote RPM
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Como reproduzir
+      description: Descreva os passos, o resultado esperado e o que aconteceu.
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Exemplo mínimo de Markdown ou mensagem de erro
+      description: Compartilhe apenas um exemplo que possa ser publicado.

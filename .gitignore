@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+*.tsbuildinfo
+.DS_Store
+test-results/
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.p12
+*.pfx
+coverage/
+installers/
